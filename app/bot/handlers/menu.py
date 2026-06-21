@@ -8,7 +8,14 @@ from aiogram.types import Message
 from app.bot.handlers.billing import send_payment_info
 from app.bot.handlers.help import HELP_TEXT, RULES_TEXT
 from app.bot.handlers.profile import _format_profile
-from app.bot.keyboards.user import main_menu_reply_keyboard
+from app.bot.keyboards.user import (
+    BACK_TO_MENU_TEXT,
+    PLAN_1_TEXT,
+    PLAN_2_TEXT,
+    PLAN_3_TEXT,
+    PLAN_6_TEXT,
+    main_menu_reply_keyboard,
+)
 from app.services.vpn_service import VPNService
 
 router = Router(name="menu")
@@ -37,6 +44,23 @@ async def menu_buttons_handler(message: Message, vpn_service: VPNService) -> Non
 
     if "оплатить подписку" in text or text == "продлить":
         await send_payment_info(message, vpn_service)
+        return
+
+    if text in {
+        PLAN_1_TEXT.lower(),
+        PLAN_2_TEXT.lower(),
+        PLAN_3_TEXT.lower(),
+        PLAN_6_TEXT.lower(),
+    }:
+        await message.answer(
+            "Для оплаты переведи сумму по реквизитам ниже и после оплаты напиши администратору.",
+            reply_markup=main_menu_reply_keyboard(),
+        )
+        await message.answer(vpn_service.build_payment_text(), reply_markup=main_menu_reply_keyboard())
+        return
+
+    if text == BACK_TO_MENU_TEXT.lower():
+        await message.answer("Главное меню:", reply_markup=main_menu_reply_keyboard())
         return
 
     if "нужна помощь" in text or text == "помощь":
