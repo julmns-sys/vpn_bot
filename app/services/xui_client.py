@@ -114,6 +114,20 @@ class XUIClient:
                 raise XUIAuthError("3x-ui login endpoint returned 404 Not Found")
             raise XUIAuthError(f"3x-ui login failed with status {response.status_code}")
 
+        login_payload: dict | None = None
+        if response.text.strip():
+            try:
+                parsed_payload = response.json()
+            except ValueError:
+                parsed_payload = None
+            if isinstance(parsed_payload, dict):
+                login_payload = parsed_payload
+
+        if isinstance(login_payload, dict) and login_payload.get("success") is False:
+            self._log_error_response("3x-ui login rejected credentials", response)
+            message = login_payload.get("msg") or "3x-ui rejected authentication"
+            raise XUIAuthError(str(message))
+
         if "login" in str(response.url).lower() and not self._client.cookies:
             self._log_error_response("3x-ui login did not establish a session", response)
             raise XUIAuthError("3x-ui login did not establish a session")
