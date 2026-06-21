@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import ssl
 import uuid as uuid_lib
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -46,6 +47,7 @@ class XUIClient:
             base_url=settings.xui_base_url,
             timeout=settings.xui_request_timeout,
             follow_redirects=True,
+            verify=settings.xui_verify_ssl,
         )
         self._is_authenticated = False
 
@@ -56,25 +58,72 @@ class XUIClient:
         if self._is_authenticated:
             return
 
+        login_path = self._path("login")
         try:
             response = await self._client.post(
-                self._path("login"),
+                login_path,
                 data={
                     "username": self._settings.xui_username,
                     "password": self._settings.xui_password,
                 },
             )
+        except httpx.ConnectTimeout as exc:
+            logger.exception(
+                "3x-ui login timeout: url=%s timeout=%s",
+                self._full_url(login_path),
+                self._settings.xui_request_timeout,
+            )
+            raise XUIUnavailableError("Timed out while connecting to 3x-ui login endpoint") from exc
+        except httpx.ReadTimeout as exc:
+            logger.exception(
+                "3x-ui login read timeout: url=%s timeout=%s",
+                self._full_url(login_path),
+                self._settings.xui_request_timeout,
+            )
+            raise XUIUnavailableError("Timed out while waiting for 3x-ui login response") from exc
+        except httpx.ConnectError as exc:
+            if self._is_ssl_error(exc):
+                logger.exception(
+                    "3x-ui login SSL error: url=%s verify_ssl=%s reason=%s",
+                    self._full_url(login_path),
+                    self._settings.xui_verify_ssl,
+                    str(exc),
+                )
+                raise XUIUnavailableError("SSL error while connecting to 3x-ui login endpoint") from exc
+            logger.exception(
+                "3x-ui login connection error: url=%s verify_ssl=%s reason=%s",
+                self._full_url(login_path),
+                self._settings.xui_verify_ssl,
+                str(exc),
+            )
+            raise XUIUnavailableError("Failed to connect to 3x-ui login endpoint") from exc
         except httpx.HTTPError as exc:
+            logger.exception(
+                "3x-ui login request error: url=%s verify_ssl=%s reason=%s",
+                self._full_url(login_path),
+                self._settings.xui_verify_ssl,
+                str(exc),
+            )
             raise XUIUnavailableError("Failed to reach 3x-ui during login") from exc
 
         if response.status_code >= 400:
+            self._log_error_response("3x-ui login failed", response)
+            if response.status_code == 401:
+                raise XUIAuthError("3x-ui login returned 401 Unauthorized")
+            if response.status_code == 404:
+                raise XUIAuthError("3x-ui login endpoint returned 404 Not Found")
             raise XUIAuthError(f"3x-ui login failed with status {response.status_code}")
 
         if "login" in str(response.url).lower() and not self._client.cookies:
+            self._log_error_response("3x-ui login did not establish a session", response)
             raise XUIAuthError("3x-ui login did not establish a session")
 
         self._is_authenticated = True
-        logger.info("Authenticated against 3x-ui")
+        logger.info(
+            "Authenticated against 3x-ui: url=%s verify_ssl=%s",
+            self._full_url(login_path),
+            self._settings.xui_verify_ssl,
+        )
 
     async def get_inbounds(self) -> list[dict]:
         payload = await self._request("GET", "panel/api/inbounds/list")
@@ -187,13 +236,59 @@ class XUIClient:
         normalized_path = self._path(path)
         try:
             response = await self._client.request(method, normalized_path, **kwargs)
+        except httpx.ConnectTimeout as exc:
+            logger.exception(
+                "3x-ui request timeout: method=%s url=%s timeout=%s",
+                method,
+                self._full_url(normalized_path),
+                self._settings.xui_request_timeout,
+            )
+            raise XUIUnavailableError(f"Timed out while connecting to 3x-ui endpoint {path}") from exc
+        except httpx.ReadTimeout as exc:
+            logger.exception(
+                "3x-ui response timeout: method=%s url=%s timeout=%s",
+                method,
+                self._full_url(normalized_path),
+                self._settings.xui_request_timeout,
+            )
+            raise XUIUnavailableError(f"Timed out while waiting for 3x-ui response from {path}") from exc
+        except httpx.ConnectError as exc:
+            if self._is_ssl_error(exc):
+                logger.exception(
+                    "3x-ui SSL error: method=%s url=%s verify_ssl=%s reason=%s",
+                    method,
+                    self._full_url(normalized_path),
+                    self._settings.xui_verify_ssl,
+                    str(exc),
+                )
+                raise XUIUnavailableError(f"3x-ui SSL error for {path}") from exc
+            logger.exception(
+                "3x-ui connection error: method=%s url=%s verify_ssl=%s reason=%s",
+                method,
+                self._full_url(normalized_path),
+                self._settings.xui_verify_ssl,
+                str(exc),
+            )
+            raise XUIUnavailableError(f"3x-ui connection failed for {path}") from exc
         except httpx.HTTPError as exc:
+            logger.exception(
+                "3x-ui request error: method=%s url=%s verify_ssl=%s reason=%s",
+                method,
+                self._full_url(normalized_path),
+                self._settings.xui_verify_ssl,
+                str(exc),
+            )
             raise XUIUnavailableError(f"3x-ui request failed for {path}") from exc
 
         if response.status_code == 401:
             self._is_authenticated = False
+            self._log_error_response("3x-ui returned 401 Unauthorized", response)
             raise XUIAuthError("3x-ui session expired or is invalid")
+        if response.status_code == 404:
+            self._log_error_response("3x-ui returned 404 Not Found", response)
+            raise XUIUnavailableError(f"3x-ui endpoint not found: {path}")
         if response.status_code >= 400:
+            self._log_error_response("3x-ui request failed", response)
             raise XUIUnavailableError(
                 f"3x-ui request failed for {path} with status {response.status_code}"
             )
@@ -205,6 +300,7 @@ class XUIClient:
             raise XUIUnavailableError(f"3x-ui returned invalid JSON for {path}") from exc
 
         if isinstance(payload, dict) and payload.get("success") is False:
+            self._log_error_response("3x-ui API returned success=false", response)
             raise XUIError(payload.get("msg") or f"3x-ui request failed for {path}")
         return payload
 
@@ -232,6 +328,33 @@ class XUIClient:
             "tgId": "",
             "reset": 0,
         }
+
+    def _full_url(self, path: str) -> str:
+        return str(self._client.base_url.join(path))
+
+    @staticmethod
+    def _trim_response_text(text: str) -> str:
+        compact = " ".join(text.split())
+        return compact[:300]
+
+    def _log_error_response(self, message: str, response: httpx.Response) -> None:
+        logger.error(
+            "%s: method=%s url=%s status_code=%s response=%s",
+            message,
+            response.request.method,
+            response.request.url,
+            response.status_code,
+            self._trim_response_text(response.text),
+        )
+
+    @staticmethod
+    def _is_ssl_error(exc: BaseException) -> bool:
+        current: BaseException | None = exc
+        while current is not None:
+            if isinstance(current, ssl.SSLError):
+                return True
+            current = current.__cause__ or current.__context__
+        return False
 
     @staticmethod
     def _to_millis(value: datetime) -> int:

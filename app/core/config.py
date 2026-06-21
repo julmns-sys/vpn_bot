@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     xui_password: str = Field(alias="XUI_PASSWORD")
     xui_inbound_id: int = Field(alias="XUI_INBOUND_ID")
     xui_request_timeout: float = Field(default=15.0, alias="XUI_REQUEST_TIMEOUT")
+    xui_verify_ssl: bool = Field(default=False, alias="XUI_VERIFY_SSL")
 
     vpn_host: str = Field(alias="VPN_HOST")
     vpn_port: int = Field(alias="VPN_PORT")
@@ -68,6 +69,9 @@ class Settings(BaseSettings):
         if isinstance(value, list):
             return [int(item) for item in value]
         if isinstance(value, str):
+            stripped = value.strip()
+            if stripped in {"[]", "null", "None"}:
+                return []
             return [int(item.strip()) for item in value.split(",") if item.strip()]
         raise ValueError("ADMIN_IDS must be a comma-separated string or list")
 
