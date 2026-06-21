@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from html import escape as quote
+
 from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.html import quote
 from aiogram.types import CallbackQuery, Message
 
 from app.bot.keyboards.admin import admin_menu_keyboard

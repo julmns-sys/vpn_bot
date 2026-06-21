@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+from html import escape as quote
 import logging
 from datetime import UTC, datetime
 
 from aiogram import F, Router
 from aiogram.filters import CommandStart
-from aiogram.html import quote
 from aiogram.types import CallbackQuery, Message
 
 from app.bot.keyboards.user import main_menu_keyboard
