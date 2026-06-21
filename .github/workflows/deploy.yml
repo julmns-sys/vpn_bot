@@ -11,27 +11,16 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Copy project to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          password: ${{ secrets.SSH_PASSWORD }}
-          port: ${{ secrets.SSH_PORT || '22' }}
-          source: "Dockerfile,pyproject.toml,alembic.ini,docker-compose.prod.yml,app,alembic,scripts"
-          target: "/opt/vpn_bot"
-          strip_components: 0
-
       - name: Deploy on server
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          GIT_BRANCH: ${{ github.ref_name }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           password: ${{ secrets.SSH_PASSWORD }}
           port: ${{ secrets.SSH_PORT || '22' }}
+          envs: GIT_BRANCH
           script: |
             chmod +x /opt/vpn_bot/scripts/deploy.sh
             /opt/vpn_bot/scripts/deploy.sh

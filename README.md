@@ -208,7 +208,7 @@ docker compose logs -f bot
 - `.github/workflows/ci.yml`:
   проверка Python-кода и сборка Docker image
 - `.github/workflows/deploy.yml`:
-  копирование проекта на сервер и локальная сборка через Docker Compose
+  git-based deploy на сервер и локальная сборка через Docker Compose
 
 ### Что нужно для работы deploy workflow
 
@@ -232,8 +232,9 @@ SSH_PORT
 
 ### Как работает деплой
 
-- GitHub Actions копирует проект на сервер в `/opt/vpn_bot`
-- на сервере выполняется локальная сборка и запуск:
+- GitHub Actions подключается к серверу по SSH
+- на сервере выполняется `git fetch` и `git reset --hard origin/<branch>` в `/opt/vpn_bot`
+- затем выполняется локальная сборка и запуск:
 
 ```bash
 /opt/vpn_bot/scripts/deploy.sh
@@ -242,6 +243,8 @@ SSH_PORT
 Фактически deploy-скрипт запускает:
 
 ```bash
+git fetch origin main
+git reset --hard origin/main
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
