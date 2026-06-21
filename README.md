@@ -49,6 +49,7 @@ XUI_INBOUND_ID=
 VPN_HOST=
 VPN_PORT=
 VPN_SNI=
+VPN_HOST_HEADER=
 VPN_PUBLIC_KEY=
 VPN_SHORT_ID=
 ```
@@ -57,6 +58,33 @@ VPN_SHORT_ID=
 
 - `XUI_BASE_URL` указывается уже вместе с `WebBasePath`, если он включён в панели.
 - реальные секреты не должны попадать в git.
+
+### Пример для VLESS + WebSocket + TLS
+
+```env
+XUI_INBOUND_ID=2
+VPN_HOST=213.165.40.42
+VPN_PORT=8443
+VPN_PROTOCOL=vless
+VPN_SECURITY=tls
+VPN_TYPE=ws
+VPN_PATH=/neko
+VPN_SNI=
+VPN_HOST_HEADER=
+VPN_FLOW=
+VPN_PUBLIC_KEY=
+VPN_SHORT_ID=
+VPN_FINGERPRINT=
+VPN_ALPN=
+```
+
+При таких параметрах ссылка будет собираться так:
+
+```text
+vless://UUID@213.165.40.42:8443?type=ws&security=tls&path=%2Fneko#vpn
+```
+
+Пустые параметры `sni`, `host`, `fp`, `alpn`, `flow`, `pbk`, `sid` в ссылку не добавляются.
 
 ## Запуск через Docker Compose
 
@@ -163,7 +191,7 @@ tg-5478201425
 4. Запусти:
 
 ```bash
-docker compose up --build -d
+docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 5. Проверь:
@@ -180,7 +208,7 @@ docker compose logs -f bot
 - `.github/workflows/ci.yml`:
   проверка Python-кода и сборка Docker image
 - `.github/workflows/deploy.yml`:
-  сборка image, push в `ghcr.io`, деплой на сервер по SSH
+  копирование проекта на сервер и локальная сборка через Docker Compose
 
 ### Что нужно для работы deploy workflow
 
@@ -204,12 +232,17 @@ SSH_PORT
 
 ### Как работает деплой
 
-- GitHub Actions публикует образ в `ghcr.io/<owner>/<repo>:latest`
-- на сервер копируются `docker-compose.prod.yml` и `scripts/deploy.sh`
-- на сервере выполняется:
+- GitHub Actions копирует проект на сервер в `/opt/vpn_bot`
+- на сервере выполняется локальная сборка и запуск:
 
 ```bash
 /opt/vpn_bot/scripts/deploy.sh
+```
+
+Фактически deploy-скрипт запускает:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 ### Первый запуск на сервере

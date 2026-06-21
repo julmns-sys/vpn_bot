@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
-from typing import Annotated, Any
+from typing import Any
 
 from pydantic import AliasChoices, Field, field_validator
-from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -17,10 +17,7 @@ class Settings(BaseSettings):
     )
 
     bot_token: str = Field(alias="BOT_TOKEN")
-    admin_ids: Annotated[list[int], NoDecode] = Field(
-        default_factory=list,
-        alias="ADMIN_IDS",
-    )
+    admin_ids: list[int] = Field(default_factory=list, alias="ADMIN_IDS")
     database_url: str = Field(alias="DATABASE_URL")
 
     xui_base_url: str = Field(alias="XUI_BASE_URL")
@@ -55,10 +52,7 @@ class Settings(BaseSettings):
     )
     price_text: str = Field(default="VPN доступ: 50 руб / месяц", alias="PRICE_TEXT")
     payment_phone: str | None = Field(default=None, alias="PAYMENT_PHONE")
-    plan_prices: Annotated[dict[int, int], NoDecode] = Field(
-        default_factory=dict,
-        alias="PLAN_PRICES",
-    )
+    plan_prices: dict[int, int] = Field(default_factory=dict, alias="PLAN_PRICES")
 
     @field_validator("admin_ids", mode="before")
     @classmethod
