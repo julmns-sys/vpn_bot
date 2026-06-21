@@ -46,6 +46,7 @@ class VPNService:
                     try:
                         account = await self._import_existing_xui_account(
                             telegram_id=telegram_id,
+                            username=username or user.username,
                             user=user,
                             accounts=accounts,
                             subscriptions=subscriptions,
@@ -63,17 +64,11 @@ class VPNService:
                         return user, account, True
                 return user, account, False
 
-            email = self._build_client_email(telegram_id)
-            existing_account = await accounts.get_by_email(email)
-            if existing_account:
-                raise RuntimeError(
-                    f"VPN account with email {email} already exists in the database"
-                )
-
             try:
-                xui_account = await self._xui_client.get_client(
-                    email=email,
-                    inbound_id=self._settings.xui_inbound_id,
+                xui_account = await self._find_existing_xui_account(
+                    telegram_id=telegram_id,
+                    username=username,
+                    accounts=accounts,
                 )
             except XUIClientNotFoundError:
                 xui_account = None
@@ -93,6 +88,7 @@ class VPNService:
                     xui_account=xui_account,
                     accounts=accounts,
                     subscriptions=subscriptions,
+                    status="active",
                 )
                 await session.commit()
                 logger.info("Imported existing XUI account for telegram_id=%s", telegram_id)
@@ -246,6 +242,7 @@ class VPNService:
                 xui_account=xui_account,
                 accounts=accounts,
                 subscriptions=subscriptions,
+                status="active",
             )
             await session.commit()
             return user, account
@@ -269,26 +266,22 @@ class VPNService:
         self,
         *,
         telegram_id: int,
+        username: str | None,
         user: User,
         accounts: VpnAccountRepository,
         subscriptions: SubscriptionRepository,
     ) -> VpnAccount:
-        email = self._build_client_email(telegram_id)
-        existing_account = await accounts.get_by_email(email)
-        if existing_account:
-            raise RuntimeError(
-                f"VPN account with email {email} already linked to another user in the database"
-            )
-
-        xui_account = await self._xui_client.get_client(
-            email=email,
-            inbound_id=self._settings.xui_inbound_id,
+        xui_account = await self._find_existing_xui_account(
+            telegram_id=telegram_id,
+            username=username,
+            accounts=accounts,
         )
         return await self._persist_imported_account(
             user=user,
             xui_account=xui_account,
             accounts=accounts,
             subscriptions=subscriptions,
+            status="active",
         )
 
     async def _create_new_account(
@@ -346,28 +339,78 @@ class VPNService:
         xui_account,
         accounts: VpnAccountRepository,
         subscriptions: SubscriptionRepository,
+        status: str,
     ) -> VpnAccount:
+        activated_account = await self._activate_imported_xui_account(xui_account)
         config_url = build_vless_config(
             settings=self._settings,
-            uuid=xui_account.uuid,
-            email=xui_account.email,
+            uuid=activated_account.uuid,
+            email=activated_account.email,
         )
         account = await accounts.create(
             user_id=user.id,
-            xui_client_id=xui_account.client_id,
-            email=xui_account.email,
-            uuid=xui_account.uuid,
-            inbound_id=xui_account.inbound_id,
+            xui_client_id=activated_account.client_id,
+            email=activated_account.email,
+            uuid=activated_account.uuid,
+            inbound_id=activated_account.inbound_id,
             config_url=config_url,
-            expires_at=xui_account.expires_at,
-            is_active=xui_account.enabled,
+            expires_at=activated_account.expires_at,
+            is_active=activated_account.enabled,
         )
         await subscriptions.create_placeholder(
             user_id=user.id,
             period_days=self._settings.default_subscription_days,
-            status="imported",
-            starts_at=None,
-            expires_at=xui_account.expires_at,
+            status=status,
+            starts_at=datetime.now(UTC),
+            expires_at=activated_account.expires_at,
             amount=None,
         )
         return account
+
+    async def _find_existing_xui_account(
+        self,
+        *,
+        telegram_id: int,
+        username: str | None,
+        accounts: VpnAccountRepository,
+    ):
+        for candidate_email in self._candidate_client_emails(telegram_id=telegram_id, username=username):
+            existing_account = await accounts.get_by_email(candidate_email)
+            if existing_account:
+                raise RuntimeError(
+                    f"VPN account with email {candidate_email} already linked to another user in the database"
+                )
+            try:
+                return await self._xui_client.get_client(
+                    email=candidate_email,
+                    inbound_id=self._settings.xui_inbound_id,
+                )
+            except XUIClientNotFoundError:
+                continue
+        raise XUIClientNotFoundError("Existing XUI client not found")
+
+    async def _activate_imported_xui_account(self, xui_account):
+        new_expires_at = datetime.now(UTC) + timedelta(
+            days=self._settings.default_subscription_days
+        )
+        return await self._xui_client.update_client_expiry(
+            inbound_id=xui_account.inbound_id,
+            client_id=xui_account.client_id,
+            email=xui_account.email,
+            expires_at=new_expires_at,
+            enabled=True,
+        )
+
+    def _candidate_client_emails(
+        self,
+        *,
+        telegram_id: int,
+        username: str | None,
+    ) -> list[str]:
+        candidates: list[str] = []
+        if username:
+            normalized_username = username.strip().lstrip("@")
+            if normalized_username:
+                candidates.append(normalized_username)
+        candidates.append(self._build_client_email(telegram_id))
+        return list(dict.fromkeys(candidates))
