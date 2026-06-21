@@ -8,7 +8,7 @@ from aiogram.types import Message
 from app.bot.handlers.billing import send_payment_info
 from app.bot.handlers.help import HELP_TEXT, RULES_TEXT
 from app.bot.handlers.profile import _format_profile
-from app.bot.keyboards.user import main_menu_keyboard, main_menu_reply_keyboard
+from app.bot.keyboards.user import main_menu_reply_keyboard
 from app.services.vpn_service import VPNService
 
 router = Router(name="menu")
@@ -33,7 +33,6 @@ async def menu_buttons_handler(message: Message, vpn_service: VPNService) -> Non
             _format_profile(account.expires_at, account.is_active),
             reply_markup=main_menu_reply_keyboard(),
         )
-        await message.answer("Быстрые действия:", reply_markup=main_menu_keyboard())
         return
 
     if "оплатить подписку" in text or text == "продлить":
@@ -42,12 +41,10 @@ async def menu_buttons_handler(message: Message, vpn_service: VPNService) -> Non
 
     if "нужна помощь" in text or text == "помощь":
         await message.answer(HELP_TEXT, reply_markup=main_menu_reply_keyboard())
-        await message.answer("Быстрые действия:", reply_markup=main_menu_keyboard())
         return
 
     if "правила использования" in text:
         await message.answer(RULES_TEXT, reply_markup=main_menu_reply_keyboard())
-        await message.answer("Быстрые действия:", reply_markup=main_menu_keyboard())
         return
 
     if "получить конфиг" in text:
@@ -63,4 +60,3 @@ async def menu_buttons_handler(message: Message, vpn_service: VPNService) -> Non
             parse_mode="HTML",
             reply_markup=main_menu_reply_keyboard(),
         )
-        await message.answer("Быстрые действия:", reply_markup=main_menu_keyboard())

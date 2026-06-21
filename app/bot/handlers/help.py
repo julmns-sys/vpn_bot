@@ -2,7 +2,7 @@ from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
-from app.bot.keyboards.user import main_menu_keyboard, main_menu_reply_keyboard
+from app.bot.keyboards.user import main_menu_reply_keyboard
 
 router = Router(name="help")
 
@@ -26,7 +26,6 @@ RULES_TEXT = (
 @router.message(Command("help"))
 async def help_command(message: Message) -> None:
     await message.answer(HELP_TEXT, reply_markup=main_menu_reply_keyboard())
-    await message.answer("Быстрые действия:", reply_markup=main_menu_keyboard())
 
 
 @router.callback_query(F.data == "help")
@@ -38,4 +37,3 @@ async def help_callback(callback: CallbackQuery) -> None:
 @router.message(Command("rules"))
 async def rules_command(message: Message) -> None:
     await message.answer(RULES_TEXT, reply_markup=main_menu_reply_keyboard())
-    await message.answer("Быстрые действия:", reply_markup=main_menu_keyboard())

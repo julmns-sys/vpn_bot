@@ -6,7 +6,7 @@ from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
-from app.bot.keyboards.user import main_menu_keyboard, main_menu_reply_keyboard
+from app.bot.keyboards.user import main_menu_reply_keyboard
 from app.services.vpn_service import VPNService
 
 router = Router(name="profile")
@@ -34,7 +34,6 @@ async def profile_command(message: Message, vpn_service: VPNService) -> None:
         _format_profile(account.expires_at, account.is_active),
         reply_markup=main_menu_reply_keyboard(),
     )
-    await message.answer("Быстрые действия:", reply_markup=main_menu_keyboard())
 
 
 @router.callback_query(F.data == "profile")
