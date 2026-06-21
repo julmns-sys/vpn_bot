@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC
+from html import escape as quote
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -12,12 +13,13 @@ from app.services.vpn_service import VPNService
 router = Router(name="profile")
 
 
-def _format_profile(account_expires_at, is_active: bool) -> str:
-    status = "активен" if is_active else "отключен"
+def _format_profile(account_expires_at, is_active: bool, config_url: str) -> str:
+    status = "активно" if is_active else "отключено"
     expires = account_expires_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
     return (
         f"Статус: {status}\n"
-        f"Подписка до: {expires}"
+        f"Действует до: {expires}\n\n"
+        f"Конфиг:\n<code>{quote(config_url)}</code>"
     )
 
 
@@ -31,8 +33,9 @@ async def profile_command(message: Message, vpn_service: VPNService) -> None:
         return
     _, account = data
     await message.answer(
-        _format_profile(account.expires_at, account.is_active),
+        _format_profile(account.expires_at, account.is_active, account.config_url),
         reply_markup=main_menu_reply_keyboard(),
+        parse_mode="HTML",
     )
 
 
@@ -46,5 +49,8 @@ async def profile_callback(callback: CallbackQuery, vpn_service: VPNService) -> 
         await callback.answer()
         return
     _, account = data
-    await callback.message.answer(_format_profile(account.expires_at, account.is_active))
+    await callback.message.answer(
+        _format_profile(account.expires_at, account.is_active, account.config_url),
+        parse_mode="HTML",
+    )
     await callback.answer()

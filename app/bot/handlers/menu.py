@@ -37,8 +37,9 @@ async def menu_buttons_handler(message: Message, vpn_service: VPNService) -> Non
             return
         _, account = data
         await message.answer(
-            _format_profile(account.expires_at, account.is_active),
+            _format_profile(account.expires_at, account.is_active, account.config_url),
             reply_markup=main_menu_reply_keyboard(),
+            parse_mode="HTML",
         )
         return
 
