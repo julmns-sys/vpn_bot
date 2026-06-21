@@ -54,7 +54,10 @@ class Settings(BaseSettings):
         default=30,
         alias="DEFAULT_SUBSCRIPTION_DAYS",
     )
-    price_text: str = Field(default="VPN доступ: 50 руб / месяц", alias="PRICE_TEXT")
+    price_text: str = Field(
+        default="Выберите срок подписки и оплатите по реквизитам ниже.",
+        alias="PRICE_TEXT",
+    )
     payment_phone: str | None = Field(default=None, alias="PAYMENT_PHONE")
     plan_prices: Annotated[dict[int, int], NoDecode] = Field(
         default_factory=dict,
