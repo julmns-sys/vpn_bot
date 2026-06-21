@@ -8,7 +8,7 @@ from aiogram import F, Router
 from aiogram.filters import CommandStart
 from aiogram.types import CallbackQuery, Message
 
-from app.bot.keyboards.user import main_menu_keyboard
+from app.bot.keyboards.user import main_menu_keyboard, main_menu_reply_keyboard
 from app.services.vpn_service import VPNService
 from app.services.xui_client import XUIError
 
@@ -52,7 +52,8 @@ async def start_command(message: Message, vpn_service: VPNService) -> None:
     )
     if created:
         text += f"\n\nТвой конфиг:\n<code>{quote(account.config_url)}</code>"
-    await message.answer(text, reply_markup=main_menu_keyboard(), parse_mode="HTML")
+    await message.answer(text, reply_markup=main_menu_reply_keyboard(), parse_mode="HTML")
+    await message.answer("Быстрые действия:", reply_markup=main_menu_keyboard())
 
 
 @router.callback_query(F.data == "get_config")
