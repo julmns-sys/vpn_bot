@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from html import escape as quote
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
@@ -48,6 +48,43 @@ def create_admin_router(admin_ids: set[int]) -> Router:
             "/admin_recreate <telegram_id>"
         )
         await callback.answer()
+
+    @router.callback_query(F.data.startswith("payment:approve:"))
+    async def approve_payment(callback: CallbackQuery, vpn_service: VPNService, bot: Bot) -> None:
+        subscription_id = int(callback.data.rsplit(":", 1)[1])
+        try:
+            subscription, account = await vpn_service.approve_payment(subscription_id)
+        except (ValueError, XUIError) as exc:
+            await callback.message.answer(f"Ошибка подтверждения: {exc}")
+            await callback.answer()
+            return
+        await bot.send_message(
+            subscription.user.telegram_id,
+            "Оплата прошла успешно. Подписка продлена.",
+        )
+        await callback.message.answer(
+            f"Оплата подтверждена для Telegram ID {subscription.user.telegram_id}.\n"
+            f"Подписка до: {account.expires_at.isoformat()}"
+        )
+        await callback.answer("Подтверждено")
+
+    @router.callback_query(F.data.startswith("payment:reject:"))
+    async def reject_payment(callback: CallbackQuery, vpn_service: VPNService, bot: Bot) -> None:
+        subscription_id = int(callback.data.rsplit(":", 1)[1])
+        try:
+            subscription = await vpn_service.reject_payment(subscription_id)
+        except ValueError as exc:
+            await callback.message.answer(f"Ошибка отклонения: {exc}")
+            await callback.answer()
+            return
+        await bot.send_message(
+            subscription.user.telegram_id,
+            "Оплата не пришла. Проверь перевод и свяжись с администратором.",
+        )
+        await callback.message.answer(
+            f"Заявка отклонена для Telegram ID {subscription.user.telegram_id}."
+        )
+        await callback.answer("Отклонено")
 
     @router.message(Command("admin_find"))
     async def admin_find(message: Message, vpn_service: VPNService) -> None:

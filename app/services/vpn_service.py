@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.core.config import Settings
 from app.db.models import User, VpnAccount
+from app.db.models import Subscription
 from app.db.repositories.subscriptions import SubscriptionRepository
 from app.db.repositories.users import UserRepository
 from app.db.repositories.vpn_accounts import VpnAccountRepository
@@ -251,12 +252,129 @@ class VPNService:
         lines = [self._settings.price_text]
         if self._settings.payment_phone:
             lines.append(f"СБП: {self._settings.payment_phone}")
-        if self._settings.plan_prices:
-            lines.append("")
-            lines.append("Тарифы:")
-            for months, amount in sorted(self._settings.plan_prices.items()):
-                lines.append(f"{months} мес. - {amount} руб.")
         return "\n".join(lines)
+
+    def build_plan_payment_text(self, months: int) -> str:
+        amount = self._settings.plan_prices.get(months)
+        if amount is None:
+            raise ValueError("Unknown payment plan")
+        lines = [
+            f"Выбран тариф: {months} мес. - {amount} руб.",
+            "",
+            "Отправьте деньги по этим реквизитам:",
+        ]
+        if self._settings.payment_phone:
+            lines.append(f"СБП: {self._settings.payment_phone}")
+        else:
+            lines.append("Реквизиты не настроены.")
+        lines.append("")
+        lines.append("После оплаты нажмите кнопку «Я оплатил».")
+        return "\n".join(lines)
+
+    async def create_payment_request(self, telegram_id: int, months: int) -> Subscription:
+        async with self._session_factory() as session:
+            users = UserRepository(session)
+            accounts = VpnAccountRepository(session)
+            subscriptions = SubscriptionRepository(session)
+
+            user = await users.get_by_telegram_id(telegram_id)
+            if not user:
+                raise ValueError("User not found")
+            account = await accounts.get_by_user_id(user.id)
+            if not account:
+                raise ValueError("VPN account not found")
+
+            amount = self._settings.plan_prices.get(months)
+            if amount is None:
+                raise ValueError("Unknown payment plan")
+
+            pending = await subscriptions.get_pending_by_user_id(user.id)
+            if pending:
+                pending.period_days = months * 30
+                pending.amount = amount
+                pending.status = "pending"
+                pending.meta = f"months={months}"
+                await session.commit()
+                return pending
+
+            subscription = await subscriptions.create_placeholder(
+                user_id=user.id,
+                period_days=months * 30,
+                amount=amount,
+                status="pending",
+            )
+            subscription.meta = f"months={months}"
+            await session.commit()
+            return subscription
+
+    async def mark_payment_submitted(self, telegram_id: int) -> Subscription:
+        async with self._session_factory() as session:
+            users = UserRepository(session)
+            subscriptions = SubscriptionRepository(session)
+            user = await users.get_by_telegram_id(telegram_id)
+            if not user:
+                raise ValueError("User not found")
+            subscription = await subscriptions.get_pending_by_user_id(user.id)
+            if not subscription:
+                raise ValueError("Pending payment not found")
+            await subscriptions.update_status(subscription, status="submitted")
+            await session.commit()
+            return subscription
+
+    async def approve_payment(self, subscription_id: int) -> tuple[Subscription, VpnAccount]:
+        async with self._session_factory() as session:
+            subscriptions = SubscriptionRepository(session)
+            users = UserRepository(session)
+            accounts = VpnAccountRepository(session)
+
+            subscription = await subscriptions.get_by_id(subscription_id)
+            if not subscription:
+                raise ValueError("Payment request not found")
+            if subscription.status not in {"pending", "submitted"}:
+                raise ValueError("Payment request already processed")
+
+            user = await users.get_by_telegram_id(subscription.user.telegram_id)
+            if not user:
+                raise ValueError("User not found")
+            account = await accounts.get_by_user_id(user.id)
+            if not account:
+                raise ValueError("VPN account not found")
+
+            base_date = max(account.expires_at, datetime.now(UTC))
+            new_expires_at = base_date + timedelta(days=subscription.period_days)
+            xui_account = await self._xui_client.update_client_expiry(
+                inbound_id=account.inbound_id,
+                client_id=account.xui_client_id,
+                email=account.email,
+                expires_at=new_expires_at,
+                enabled=True,
+            )
+            await accounts.update_config(
+                account,
+                config_url=account.config_url,
+                expires_at=xui_account.expires_at,
+                is_active=True,
+            )
+            await subscriptions.update_status(
+                subscription,
+                status="approved",
+                starts_at=datetime.now(UTC),
+                expires_at=xui_account.expires_at,
+            )
+            await session.commit()
+            return subscription, account
+
+    async def reject_payment(self, subscription_id: int) -> Subscription:
+        async with self._session_factory() as session:
+            subscriptions = SubscriptionRepository(session)
+            subscription = await subscriptions.get_by_id(subscription_id)
+            if not subscription:
+                raise ValueError("Payment request not found")
+            if subscription.status not in {"pending", "submitted"}:
+                raise ValueError("Payment request already processed")
+            await subscriptions.update_status(subscription, status="rejected")
+            await session.commit()
+            return subscription
 
     @staticmethod
     def _build_client_email(telegram_id: int) -> str:

@@ -52,11 +52,28 @@ async def menu_buttons_handler(message: Message, vpn_service: VPNService) -> Non
         PLAN_3_TEXT.lower(),
         PLAN_6_TEXT.lower(),
     }:
+        if not message.from_user:
+            return
+        months = {
+            PLAN_1_TEXT.lower(): 1,
+            PLAN_2_TEXT.lower(): 2,
+            PLAN_3_TEXT.lower(): 3,
+            PLAN_6_TEXT.lower(): 6,
+        }[text]
+        await vpn_service.create_payment_request(
+            message.from_user.id,
+            months,
+        )
         await message.answer(
-            "Для оплаты переведи сумму по реквизитам ниже и после оплаты напиши администратору.",
+            vpn_service.build_plan_payment_text(months),
             reply_markup=main_menu_reply_keyboard(),
         )
-        await message.answer(vpn_service.build_payment_text(), reply_markup=main_menu_reply_keyboard())
+        from app.bot.keyboards.user import payment_confirmation_keyboard
+
+        await message.answer(
+            "Когда переведёте деньги, нажмите кнопку ниже.",
+            reply_markup=payment_confirmation_keyboard(),
+        )
         return
 
     if text == BACK_TO_MENU_TEXT.lower():

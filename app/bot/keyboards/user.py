@@ -48,3 +48,17 @@ def payment_plans_reply_keyboard() -> ReplyKeyboardMarkup:
         resize_keyboard=True,
         input_field_placeholder="Выбери тариф...",
     )
+
+
+def payment_confirmation_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="Я оплатил", callback_data="payment:submitted")
+    return builder.as_markup()
+
+
+def admin_payment_decision_keyboard(subscription_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="Подтвердить", callback_data=f"payment:approve:{subscription_id}")
+    builder.button(text="Отклонить", callback_data=f"payment:reject:{subscription_id}")
+    builder.adjust(1)
+    return builder.as_markup()
