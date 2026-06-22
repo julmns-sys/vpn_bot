@@ -21,6 +21,12 @@ from app.services.vpn_service import VPNService
 router = Router(name="menu")
 
 
+UNPAID_TEXT = (
+    "Подписка ещё не оплачена.\n"
+    "Сначала нажми «Оплатить подписку», после подтверждения оплаты бот выдаст конфиг."
+)
+
+
 def _normalized_menu_text(text: str) -> str:
     return " ".join(text.lower().strip().split())
 
@@ -33,7 +39,7 @@ async def menu_buttons_handler(message: Message, vpn_service: VPNService) -> Non
             return
         data = await vpn_service.get_account_by_telegram_id(message.from_user.id)
         if not data:
-            await message.answer("Профиль не найден. Нажми /start.")
+            await message.answer(UNPAID_TEXT, reply_markup=main_menu_reply_keyboard())
             return
         _, account = data
         await message.answer(
@@ -94,7 +100,7 @@ async def menu_buttons_handler(message: Message, vpn_service: VPNService) -> Non
             return
         data = await vpn_service.get_account_by_telegram_id(message.from_user.id)
         if not data:
-            await message.answer("Аккаунт не найден. Нажми /start.")
+            await message.answer(UNPAID_TEXT, reply_markup=main_menu_reply_keyboard())
             return
         _, account = data
         await message.answer(

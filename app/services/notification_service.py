@@ -61,7 +61,7 @@ class NotificationService:
 
     @staticmethod
     def _build_alert_text(*, days: int, expires_at: datetime) -> str:
-        expires = expires_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+        expires = expires_at.astimezone(UTC).strftime("%Y-%m-%d")
         if days == 1:
             return (
                 "Подписка истечет завтра.\n"

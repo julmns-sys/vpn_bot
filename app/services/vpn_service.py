@@ -34,7 +34,7 @@ class VPNService:
         telegram_id: int,
         username: str | None,
         first_name: str | None,
-    ) -> tuple[User, VpnAccount, bool]:
+    ) -> tuple[User, VpnAccount | None, bool]:
         async with self._session_factory() as session:
             users = UserRepository(session)
             accounts = VpnAccountRepository(session)
@@ -55,14 +55,8 @@ class VPNService:
                         await session.commit()
                         return user, account, False
                     except XUIClientNotFoundError:
-                        account = await self._create_new_account(
-                            user=user,
-                            telegram_id=telegram_id,
-                            accounts=accounts,
-                            subscriptions=subscriptions,
-                        )
                         await session.commit()
-                        return user, account, True
+                        return user, None, False
                 return user, account, False
 
             try:
@@ -95,15 +89,9 @@ class VPNService:
                 logger.info("Imported existing XUI account for telegram_id=%s", telegram_id)
                 return user, account, False
 
-            account = await self._create_new_account(
-                user=user,
-                telegram_id=telegram_id,
-                accounts=accounts,
-                subscriptions=subscriptions,
-            )
             await session.commit()
-            logger.info("Created VPN account for telegram_id=%s", telegram_id)
-            return user, account, True
+            logger.info("Registered user without VPN account telegram_id=%s", telegram_id)
+            return user, None, True
 
     async def get_account_by_telegram_id(self, telegram_id: int) -> tuple[User, VpnAccount] | None:
         async with self._session_factory() as session:
@@ -274,15 +262,11 @@ class VPNService:
     async def create_payment_request(self, telegram_id: int, months: int) -> Subscription:
         async with self._session_factory() as session:
             users = UserRepository(session)
-            accounts = VpnAccountRepository(session)
             subscriptions = SubscriptionRepository(session)
 
             user = await users.get_by_telegram_id(telegram_id)
             if not user:
                 raise ValueError("User not found")
-            account = await accounts.get_by_user_id(user.id)
-            if not account:
-                raise ValueError("VPN account not found")
 
             amount = self._settings.plan_prices.get(months)
             if amount is None:
@@ -337,29 +321,24 @@ class VPNService:
             if not user:
                 raise ValueError("User not found")
             account = await accounts.get_by_user_id(user.id)
-            if not account:
-                raise ValueError("VPN account not found")
-
-            base_date = max(account.expires_at, datetime.now(UTC))
-            new_expires_at = base_date + timedelta(days=subscription.period_days)
-            xui_account = await self._xui_client.update_client_expiry(
-                inbound_id=account.inbound_id,
-                client_id=account.xui_client_id,
-                email=account.email,
-                expires_at=new_expires_at,
-                enabled=True,
-            )
-            await accounts.update_config(
-                account,
-                config_url=account.config_url,
-                expires_at=xui_account.expires_at,
-                is_active=True,
-            )
+            if account:
+                account = await self._extend_existing_account_for_payment(
+                    account=account,
+                    days=subscription.period_days,
+                    accounts=accounts,
+                )
+            else:
+                account = await self._provision_paid_account_for_user(
+                    user=user,
+                    username=user.username,
+                    days=subscription.period_days,
+                    accounts=accounts,
+                )
             await subscriptions.update_status(
                 subscription,
                 status="approved",
                 starts_at=datetime.now(UTC),
-                expires_at=xui_account.expires_at,
+                expires_at=account.expires_at,
             )
             await session.commit()
             return subscription, account
@@ -409,9 +388,10 @@ class VPNService:
         telegram_id: int,
         accounts: VpnAccountRepository,
         subscriptions: SubscriptionRepository,
+        duration_days: int | None = None,
     ) -> VpnAccount:
         expires_at = datetime.now(UTC) + timedelta(
-            days=self._settings.default_subscription_days
+            days=duration_days or self._settings.default_subscription_days
         )
         email = self._build_client_email(telegram_id)
         try:
@@ -439,12 +419,12 @@ class VPNService:
         )
         await subscriptions.create_placeholder(
             user_id=user.id,
-            period_days=self._settings.default_subscription_days,
+            period_days=duration_days or self._settings.default_subscription_days,
             status="active",
             starts_at=datetime.now(UTC),
             expires_at=xui_account.expires_at,
             amount=self._settings.plan_prices.get(
-                self._settings.default_subscription_days,
+                max((duration_days or self._settings.default_subscription_days) // 30, 1),
                 None,
             ),
         )
@@ -517,6 +497,94 @@ class VPNService:
             email=xui_account.email,
             expires_at=new_expires_at,
             enabled=True,
+        )
+
+    async def _extend_existing_account_for_payment(
+        self,
+        *,
+        account: VpnAccount,
+        days: int,
+        accounts: VpnAccountRepository,
+    ) -> VpnAccount:
+        base_date = max(account.expires_at, datetime.now(UTC))
+        new_expires_at = base_date + timedelta(days=days)
+        xui_account = await self._xui_client.update_client_expiry(
+            inbound_id=account.inbound_id,
+            client_id=account.xui_client_id,
+            email=account.email,
+            expires_at=new_expires_at,
+            enabled=True,
+        )
+        await accounts.update_config(
+            account,
+            config_url=account.config_url,
+            expires_at=xui_account.expires_at,
+            is_active=True,
+        )
+        return account
+
+    async def _provision_paid_account_for_user(
+        self,
+        *,
+        user: User,
+        username: str | None,
+        days: int,
+        accounts: VpnAccountRepository,
+    ) -> VpnAccount:
+        try:
+            xui_account = await self._find_existing_xui_account(
+                telegram_id=user.telegram_id,
+                username=username,
+                accounts=accounts,
+            )
+        except XUIClientNotFoundError:
+            xui_account = None
+
+        if xui_account:
+            new_expires_at = datetime.now(UTC) + timedelta(days=days)
+            activated_account = await self._xui_client.update_client_expiry(
+                inbound_id=xui_account.inbound_id,
+                client_id=xui_account.client_id,
+                email=xui_account.email,
+                expires_at=new_expires_at,
+                enabled=True,
+            )
+            config_url = build_vless_config(
+                settings=self._settings,
+                uuid=activated_account.uuid,
+                email=activated_account.email,
+            )
+            return await accounts.create(
+                user_id=user.id,
+                xui_client_id=activated_account.client_id,
+                email=activated_account.email,
+                uuid=activated_account.uuid,
+                inbound_id=activated_account.inbound_id,
+                config_url=config_url,
+                expires_at=activated_account.expires_at,
+                is_active=activated_account.enabled,
+            )
+
+        expires_at = datetime.now(UTC) + timedelta(days=days)
+        email = self._build_client_email(user.telegram_id)
+        created_account = await self._xui_client.create_client(
+            email=email,
+            expires_at=expires_at,
+        )
+        config_url = build_vless_config(
+            settings=self._settings,
+            uuid=created_account.uuid,
+            email=created_account.email,
+        )
+        return await accounts.create(
+            user_id=user.id,
+            xui_client_id=created_account.client_id,
+            email=created_account.email,
+            uuid=created_account.uuid,
+            inbound_id=created_account.inbound_id,
+            config_url=config_url,
+            expires_at=created_account.expires_at,
+            is_active=created_account.enabled,
         )
 
     def _candidate_client_emails(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC
 from html import escape as quote
 
 from aiogram import Bot, F, Router
@@ -60,11 +61,14 @@ def create_admin_router(admin_ids: set[int]) -> Router:
             return
         await bot.send_message(
             subscription.user.telegram_id,
-            "Оплата прошла успешно. Подписка продлена.",
+            "Оплата прошла успешно.\n"
+            f"Подписка действует до: {account.expires_at.astimezone(UTC).strftime('%Y-%m-%d')}\n\n"
+            f"Твой конфиг:\n<code>{quote(account.config_url)}</code>",
+            parse_mode="HTML",
         )
         await callback.message.answer(
             f"Оплата подтверждена для Telegram ID {subscription.user.telegram_id}.\n"
-            f"Подписка до: {account.expires_at.isoformat()}"
+            f"Подписка до: {account.expires_at.astimezone(UTC).strftime('%Y-%m-%d')}"
         )
         await callback.answer("Подтверждено")
 

@@ -17,14 +17,23 @@ logger = logging.getLogger(__name__)
 router = Router(name="start")
 
 
-def _profile_text(name: str, account_expires_at: datetime, is_active: bool) -> str:
+def _active_profile_text(name: str, account_expires_at: datetime, is_active: bool) -> str:
     status = "активен" if is_active else "отключен"
-    expires = account_expires_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+    expires = account_expires_at.astimezone(UTC).strftime("%Y-%m-%d")
     return (
         f"Привет, {name}!\n\n"
         f"Статус: {status}\n"
         f"Подписка до: {expires}\n\n"
         "Выбери действие ниже."
+    )
+
+
+def _inactive_profile_text(name: str) -> str:
+    return (
+        f"Привет, {name}!\n\n"
+        "Статус: не активна\n"
+        "Подписка ещё не оплачена.\n\n"
+        "Нажми «Оплатить подписку», чтобы получить конфиг после подтверждения оплаты."
     )
 
 
@@ -45,13 +54,17 @@ async def start_command(message: Message, vpn_service: VPNService) -> None:
         )
         return
 
-    text = _profile_text(
-        name=user.first_name or user.username or "пользователь",
-        account_expires_at=account.expires_at,
-        is_active=account.is_active,
-    )
-    if created:
-        text += f"\n\nТвой конфиг:\n<code>{quote(account.config_url)}</code>"
+    display_name = user.first_name or user.username or "пользователь"
+    if not account:
+        text = _inactive_profile_text(display_name)
+    else:
+        text = _active_profile_text(
+            name=display_name,
+            account_expires_at=account.expires_at,
+            is_active=account.is_active,
+        )
+        if created:
+            text += f"\n\nТвой конфиг:\n<code>{quote(account.config_url)}</code>"
     await message.answer(text, reply_markup=main_menu_reply_keyboard(), parse_mode="HTML")
 
 
@@ -61,7 +74,9 @@ async def get_config_callback(callback: CallbackQuery, vpn_service: VPNService) 
         return
     data = await vpn_service.get_account_by_telegram_id(callback.from_user.id)
     if not data:
-        await callback.message.answer("Аккаунт не найден. Нажми /start.")
+        await callback.message.answer(
+            "Конфиг станет доступен после подтверждения оплаты. Нажми «Оплатить подписку»."
+        )
         await callback.answer()
         return
     _, account = data

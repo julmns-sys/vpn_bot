@@ -12,10 +12,16 @@ from app.services.vpn_service import VPNService
 
 router = Router(name="profile")
 
+UNPAID_TEXT = (
+    "Статус: не активна\n"
+    "Подписка ещё не оплачена.\n\n"
+    "Сначала нажми «Оплатить подписку», после подтверждения оплаты появится конфиг."
+)
+
 
 def _format_profile(account_expires_at, is_active: bool, config_url: str) -> str:
     status = "активно" if is_active else "отключено"
-    expires = account_expires_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+    expires = account_expires_at.astimezone(UTC).strftime("%Y-%m-%d")
     return (
         f"Статус: {status}\n"
         f"Действует до: {expires}\n\n"
@@ -29,7 +35,7 @@ async def profile_command(message: Message, vpn_service: VPNService) -> None:
         return
     data = await vpn_service.get_account_by_telegram_id(message.from_user.id)
     if not data:
-        await message.answer("Профиль не найден. Нажми /start.")
+        await message.answer(UNPAID_TEXT, reply_markup=main_menu_reply_keyboard())
         return
     _, account = data
     await message.answer(
@@ -45,7 +51,7 @@ async def profile_callback(callback: CallbackQuery, vpn_service: VPNService) -> 
         return
     data = await vpn_service.get_account_by_telegram_id(callback.from_user.id)
     if not data:
-        await callback.message.answer("Профиль не найден. Нажми /start.")
+        await callback.message.answer(UNPAID_TEXT, reply_markup=main_menu_reply_keyboard())
         await callback.answer()
         return
     _, account = data
