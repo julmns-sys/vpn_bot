@@ -11,6 +11,7 @@ from app.bot.router import setup_routers
 from app.core.config import get_settings
 from app.core.logging import setup_logging
 from app.db.session import create_engine, create_session_factory
+from app.services.notification_service import NotificationService
 from app.services.vpn_service import VPNService
 from app.services.xui_client import XUIClient
 
@@ -35,11 +36,16 @@ async def run_bot() -> None:
 
     bot = Bot(token=settings.bot_token)
     dispatcher = build_dispatcher(vpn_service, set(settings.admin_ids))
+    notification_service = NotificationService(session_factory, bot)
+    notification_task = asyncio.create_task(notification_service.run_forever())
 
     logger.info("Starting bot polling")
     try:
         await dispatcher.start_polling(bot)
     finally:
+        notification_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await notification_task
         await bot.session.close()
         await xui_client.close()
         await engine.dispose()

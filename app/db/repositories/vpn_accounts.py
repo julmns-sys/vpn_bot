@@ -72,3 +72,35 @@ class VpnAccountRepository:
         account.is_active = is_active
         await self._session.flush()
         return account
+
+    async def list_accounts_for_alert(
+        self,
+        *,
+        expires_before: datetime,
+        alert_field: str,
+    ) -> list[VpnAccount]:
+        alert_column = getattr(VpnAccount, alert_field)
+        result = await self._session.execute(
+            select(VpnAccount)
+            .join(User)
+            .options(selectinload(VpnAccount.user))
+            .where(
+                VpnAccount.is_active.is_(True),
+                VpnAccount.expires_at <= expires_before,
+                VpnAccount.expires_at > datetime.now(expires_before.tzinfo),
+                alert_column.is_(None),
+            )
+            .order_by(VpnAccount.expires_at.asc())
+        )
+        return list(result.scalars().all())
+
+    async def mark_alert_sent(
+        self,
+        account: VpnAccount,
+        *,
+        alert_field: str,
+        sent_at: datetime,
+    ) -> VpnAccount:
+        setattr(account, alert_field, sent_at)
+        await self._session.flush()
+        return account

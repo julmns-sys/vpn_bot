@@ -55,6 +55,8 @@ class VpnAccount(Base, TimestampMixin):
     config_url: Mapped[str] = mapped_column(Text, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    alert_3d_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    alert_1d_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     user: Mapped[User] = relationship(back_populates="vpn_account")
 
