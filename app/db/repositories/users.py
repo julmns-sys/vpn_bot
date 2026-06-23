@@ -16,6 +16,21 @@ class UserRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_by_username(self, username: str) -> User | None:
+        normalized = username.strip().lstrip("@")
+        result = await self._session.execute(
+            select(User).where(User.username == normalized)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_telegram_ids(self, telegram_ids: list[int]) -> list[User]:
+        if not telegram_ids:
+            return []
+        result = await self._session.execute(
+            select(User).where(User.telegram_id.in_(telegram_ids))
+        )
+        return list(result.scalars().all())
+
     async def create(
         self,
         telegram_id: int,

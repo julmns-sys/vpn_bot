@@ -305,6 +305,32 @@ class VPNService:
             await session.commit()
         return await self.get_admin_ids()
 
+    async def remove_admin_id(self, telegram_id: int) -> set[int]:
+        async with self._session_factory() as session:
+            repo = BotSettingRepository(session)
+            raw_settings = await repo.get_many([BOT_SETTING_ADMIN_IDS])
+            admin_ids = self._deserialize_admin_ids(raw_settings.get(BOT_SETTING_ADMIN_IDS))
+            admin_ids.discard(telegram_id)
+            await repo.set(
+                BOT_SETTING_ADMIN_IDS,
+                json.dumps(sorted(admin_ids), ensure_ascii=True),
+            )
+            await session.commit()
+        return await self.get_admin_ids()
+
+    async def get_user_by_username(self, username: str) -> User | None:
+        async with self._session_factory() as session:
+            users = UserRepository(session)
+            return await users.get_by_username(username)
+
+    async def get_admin_labels(self) -> list[tuple[int, str | None]]:
+        admin_ids = sorted(await self.get_admin_ids())
+        async with self._session_factory() as session:
+            users = UserRepository(session)
+            known_users = await users.get_by_telegram_ids(admin_ids)
+        username_by_id = {user.telegram_id: user.username for user in known_users if user.username}
+        return [(admin_id, username_by_id.get(admin_id)) for admin_id in admin_ids]
+
     async def update_plan_price(self, *, months: int, amount: int) -> dict[int, int]:
         async with self._session_factory() as session:
             repo = BotSettingRepository(session)

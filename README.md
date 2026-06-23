@@ -163,6 +163,9 @@ python -m app.main --check-xui
 - `/admin_set_price_text <text>`
 - `/admin_list`
 - `/admin_add`
+- `/admin_remove`
+
+`/admin_add` и `/admin_remove` можно выполнять по `@username`, пересланному сообщению или контакту. Если бот ещё не знает пользователя, используй пересланное сообщение или контакт.
 
 ## Импорт существующих пользователей
 
