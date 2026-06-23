@@ -7,10 +7,6 @@ MENU_RENEW_TEXT = "🐝 Оплатить подписку"
 MENU_HELP_TEXT = "📲 Инструкция по подключению"
 MENU_SUPPORT_TEXT = "🆘 Нужна помощь?"
 MENU_RULES_TEXT = "📜 Правила использования"
-PLAN_1_TEXT = "1 месяц - 100 руб"
-PLAN_2_TEXT = "2 месяца - 190 руб"
-PLAN_3_TEXT = "3 месяца - 280 руб"
-PLAN_6_TEXT = "6 месяцев - 555 руб"
 BACK_TO_MENU_TEXT = "⬅️ Назад в меню"
 
 
@@ -38,12 +34,15 @@ def main_menu_reply_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
-def payment_plans_reply_keyboard() -> ReplyKeyboardMarkup:
+def format_plan_button_text(months: int, amount: int) -> str:
+    suffix = "месяц" if months == 1 else "месяца" if months in {2, 3} else "месяцев"
+    return f"{months} {suffix} - {amount} руб"
+
+
+def payment_plans_reply_keyboard(plan_prices: dict[int, int]) -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
-    builder.button(text=PLAN_1_TEXT)
-    builder.button(text=PLAN_2_TEXT)
-    builder.button(text=PLAN_3_TEXT)
-    builder.button(text=PLAN_6_TEXT)
+    for months, amount in sorted(plan_prices.items()):
+        builder.button(text=format_plan_button_text(months, amount))
     builder.button(text=BACK_TO_MENU_TEXT)
     builder.adjust(1)
     return builder.as_markup(

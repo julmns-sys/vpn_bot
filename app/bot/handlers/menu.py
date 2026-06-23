@@ -10,10 +10,7 @@ from app.bot.handlers.help import HELP_TEXT, INSTRUCTION_TEXT, RULES_TEXT
 from app.bot.handlers.profile import _format_profile
 from app.bot.keyboards.user import (
     BACK_TO_MENU_TEXT,
-    PLAN_1_TEXT,
-    PLAN_2_TEXT,
-    PLAN_3_TEXT,
-    PLAN_6_TEXT,
+    format_plan_button_text,
     main_menu_reply_keyboard,
 )
 from app.services.vpn_service import VPNService
@@ -53,26 +50,24 @@ async def menu_buttons_handler(message: Message, vpn_service: VPNService) -> Non
         await send_payment_info(message, vpn_service)
         return
 
-    if text in {
-        PLAN_1_TEXT.lower(),
-        PLAN_2_TEXT.lower(),
-        PLAN_3_TEXT.lower(),
-        PLAN_6_TEXT.lower(),
-    }:
+    plan_prices = (await vpn_service.get_billing_settings())[2]
+    matched_plan = next(
+        (
+            months
+            for months, amount in plan_prices.items()
+            if text == format_plan_button_text(months, amount).lower()
+        ),
+        None,
+    )
+    if matched_plan is not None:
         if not message.from_user:
             return
-        months = {
-            PLAN_1_TEXT.lower(): 1,
-            PLAN_2_TEXT.lower(): 2,
-            PLAN_3_TEXT.lower(): 3,
-            PLAN_6_TEXT.lower(): 6,
-        }[text]
         await vpn_service.create_payment_request(
             message.from_user.id,
-            months,
+            matched_plan,
         )
         await message.answer(
-            vpn_service.build_plan_payment_text(months),
+            await vpn_service.build_plan_payment_text(matched_plan),
             reply_markup=main_menu_reply_keyboard(),
         )
         from app.bot.keyboards.user import payment_confirmation_keyboard

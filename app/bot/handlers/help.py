@@ -8,7 +8,8 @@ router = Router(name="help")
 
 HELP_TEXT = (
     "Если возникли вопросы по оплате, конфигу или подключению, напиши администратору:\n"
-    "<a href=\"https://t.me/nmnby\">@nmnby</a>"
+    "<a href=\"https://t.me/nmnby\">@nmnby</a>\n"
+    "<a href=\"https://t.me/Squeeeze_xxxx\">@Squeeeze_xxxx</a>"
 )
 INSTRUCTION_TEXT = (
     "Инструкция по подключению:\n\n"

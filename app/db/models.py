@@ -76,3 +76,11 @@ class Subscription(Base, TimestampMixin):
     meta: Mapped[str | None] = mapped_column(Text)
 
     user: Mapped[User] = relationship(back_populates="subscriptions")
+
+
+class BotSetting(Base, TimestampMixin):
+    __tablename__ = "bot_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    key: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    value: Mapped[str] = mapped_column(Text, nullable=False)

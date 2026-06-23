@@ -157,6 +157,10 @@ python -m app.main --check-xui
 - `/admin_disable <telegram_id>`
 - `/admin_extend <telegram_id> <days>`
 - `/admin_recreate <telegram_id>`
+- `/admin_billing`
+- `/admin_set_price <months> <amount>`
+- `/admin_set_requisites <text>`
+- `/admin_set_price_text <text>`
 
 ## Импорт существующих пользователей
 
@@ -193,6 +197,7 @@ tg-5478201425
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml exec bot alembic upgrade head
 ```
 
 5. Проверь:

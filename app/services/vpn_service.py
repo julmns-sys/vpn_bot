@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime, timedelta
+import json
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.core.config import Settings
 from app.db.models import User, VpnAccount
 from app.db.models import Subscription
+from app.db.repositories.bot_settings import BotSettingRepository
 from app.db.repositories.subscriptions import SubscriptionRepository
 from app.db.repositories.users import UserRepository
 from app.db.repositories.vpn_accounts import VpnAccountRepository
@@ -15,6 +17,10 @@ from app.services.config_builder import build_vless_config
 from app.services.xui_client import XUIClient, XUIClientNotFoundError, XUIError
 
 logger = logging.getLogger(__name__)
+
+BOT_SETTING_PLAN_PRICES = "plan_prices"
+BOT_SETTING_PRICE_TEXT = "price_text"
+BOT_SETTING_PAYMENT_DETAILS = "payment_details"
 
 
 class VPNService:
@@ -236,28 +242,70 @@ class VPNService:
             await session.commit()
             return user, account
 
-    def build_payment_text(self) -> str:
-        lines = [self._settings.price_text]
-        if self._settings.payment_phone:
-            lines.append(f"СБП: {self._settings.payment_phone}")
+    async def build_payment_text(self) -> str:
+        payment_text, payment_details, _ = await self.get_billing_settings()
+        lines = [payment_text]
+        if payment_details:
+            lines.extend(["", payment_details])
         return "\n".join(lines)
 
-    def build_plan_payment_text(self, months: int) -> str:
-        amount = self._settings.plan_prices.get(months)
+    async def build_plan_payment_text(self, months: int) -> str:
+        payment_text, payment_details, plan_prices = await self.get_billing_settings()
+        amount = plan_prices.get(months)
         if amount is None:
             raise ValueError("Unknown payment plan")
         lines = [
             f"Выбран тариф: {months} мес. - {amount} руб.",
             "",
-            "Отправьте деньги по этим реквизитам:",
+            payment_text or "Отправьте деньги по этим реквизитам:",
         ]
-        if self._settings.payment_phone:
-            lines.append(f"СБП: {self._settings.payment_phone}")
+        if payment_details:
+            lines.append(payment_details)
         else:
             lines.append("Реквизиты не настроены.")
         lines.append("")
         lines.append("После оплаты нажмите кнопку «Я оплатил».")
         return "\n".join(lines)
+
+    async def get_billing_settings(self) -> tuple[str, str | None, dict[int, int]]:
+        async with self._session_factory() as session:
+            repo = BotSettingRepository(session)
+            raw_settings = await repo.get_many(
+                [
+                    BOT_SETTING_PRICE_TEXT,
+                    BOT_SETTING_PAYMENT_DETAILS,
+                    BOT_SETTING_PLAN_PRICES,
+                ]
+            )
+        return (
+            raw_settings.get(BOT_SETTING_PRICE_TEXT) or self._settings.price_text,
+            raw_settings.get(BOT_SETTING_PAYMENT_DETAILS) or self._default_payment_details(),
+            self._deserialize_plan_prices(raw_settings.get(BOT_SETTING_PLAN_PRICES)),
+        )
+
+    async def update_plan_price(self, *, months: int, amount: int) -> dict[int, int]:
+        async with self._session_factory() as session:
+            repo = BotSettingRepository(session)
+            raw_settings = await repo.get_many([BOT_SETTING_PLAN_PRICES])
+            plan_prices = self._deserialize_plan_prices(raw_settings.get(BOT_SETTING_PLAN_PRICES))
+            plan_prices[months] = amount
+            await repo.set(BOT_SETTING_PLAN_PRICES, json.dumps(plan_prices, ensure_ascii=True, sort_keys=True))
+            await session.commit()
+            return dict(sorted(plan_prices.items()))
+
+    async def update_payment_details(self, details: str) -> str:
+        async with self._session_factory() as session:
+            repo = BotSettingRepository(session)
+            await repo.set(BOT_SETTING_PAYMENT_DETAILS, details.strip())
+            await session.commit()
+            return details.strip()
+
+    async def update_price_text(self, text: str) -> str:
+        async with self._session_factory() as session:
+            repo = BotSettingRepository(session)
+            await repo.set(BOT_SETTING_PRICE_TEXT, text.strip())
+            await session.commit()
+            return text.strip()
 
     async def create_payment_request(self, telegram_id: int, months: int) -> Subscription:
         async with self._session_factory() as session:
@@ -268,7 +316,11 @@ class VPNService:
             if not user:
                 raise ValueError("User not found")
 
-            amount = self._settings.plan_prices.get(months)
+            settings_repo = BotSettingRepository(session)
+            raw_settings = await settings_repo.get_many([BOT_SETTING_PLAN_PRICES])
+            amount = self._deserialize_plan_prices(
+                raw_settings.get(BOT_SETTING_PLAN_PRICES)
+            ).get(months)
             if amount is None:
                 raise ValueError("Unknown payment plan")
 
@@ -358,6 +410,28 @@ class VPNService:
     @staticmethod
     def _build_client_email(telegram_id: int) -> str:
         return f"tg-{telegram_id}"
+
+    def _default_payment_details(self) -> str | None:
+        if self._settings.payment_phone:
+            return f"СБП: {self._settings.payment_phone}"
+        return None
+
+    def _deserialize_plan_prices(self, raw_value: str | None) -> dict[int, int]:
+        if not raw_value:
+            return dict(self._settings.plan_prices)
+        try:
+            parsed = json.loads(raw_value)
+        except json.JSONDecodeError:
+            logger.warning("Invalid plan_prices in bot settings, using defaults")
+            return dict(self._settings.plan_prices)
+        if not isinstance(parsed, dict):
+            logger.warning("Invalid plan_prices shape in bot settings, using defaults")
+            return dict(self._settings.plan_prices)
+        try:
+            return {int(key): int(value) for key, value in parsed.items()}
+        except (TypeError, ValueError):
+            logger.warning("Invalid plan_prices values in bot settings, using defaults")
+            return dict(self._settings.plan_prices)
 
     async def _import_existing_xui_account(
         self,

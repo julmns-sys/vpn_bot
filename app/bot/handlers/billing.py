@@ -14,12 +14,20 @@ router = Router(name="billing")
 
 @router.callback_query(F.data == "renew")
 async def renew_callback(callback: CallbackQuery, vpn_service: VPNService) -> None:
-    await callback.message.answer("Выберите срок подписки:", reply_markup=payment_plans_reply_keyboard())
+    _, _, plan_prices = await vpn_service.get_billing_settings()
+    await callback.message.answer(
+        "Выберите срок подписки:",
+        reply_markup=payment_plans_reply_keyboard(plan_prices),
+    )
     await callback.answer()
 
 
 async def send_payment_info(message: Message, vpn_service: VPNService) -> None:
-    await message.answer("Выберите срок подписки:", reply_markup=payment_plans_reply_keyboard())
+    _, _, plan_prices = await vpn_service.get_billing_settings()
+    await message.answer(
+        "Выберите срок подписки:",
+        reply_markup=payment_plans_reply_keyboard(plan_prices),
+    )
 
 
 @router.callback_query(F.data == "payment:submitted")

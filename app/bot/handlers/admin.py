@@ -27,7 +27,11 @@ def create_admin_router(admin_ids: set[int]) -> Router:
             "/admin_import_email <telegram_id> <email>\n"
             "/admin_disable <telegram_id>\n"
             "/admin_extend <telegram_id> <days>\n"
-            "/admin_recreate <telegram_id>",
+            "/admin_recreate <telegram_id>\n"
+            "/admin_billing\n"
+            "/admin_set_price <months> <amount>\n"
+            "/admin_set_requisites <text>\n"
+            "/admin_set_price_text <text>",
             reply_markup=admin_menu_keyboard(),
         )
 
@@ -46,7 +50,11 @@ def create_admin_router(admin_ids: set[int]) -> Router:
             "/admin_import_email <telegram_id> <email>\n"
             "/admin_disable <telegram_id>\n"
             "/admin_extend <telegram_id> <days>\n"
-            "/admin_recreate <telegram_id>"
+            "/admin_recreate <telegram_id>\n"
+            "/admin_billing\n"
+            "/admin_set_price <months> <amount>\n"
+            "/admin_set_requisites <text>\n"
+            "/admin_set_price_text <text>"
         )
         await callback.answer()
 
@@ -190,5 +198,57 @@ def create_admin_router(admin_ids: set[int]) -> Router:
             f"Конфиг пересобран:\n<code>{quote(account.config_url)}</code>",
             parse_mode="HTML",
         )
+
+    @router.message(Command("admin_billing"))
+    async def admin_billing(message: Message, vpn_service: VPNService) -> None:
+        price_text, payment_details, plan_prices = await vpn_service.get_billing_settings()
+        lines = [
+            "Текущие настройки оплаты:",
+            f"Текст: {price_text}",
+            f"Реквизиты: {payment_details or '-'}",
+            "Тарифы:",
+        ]
+        for months, amount in sorted(plan_prices.items()):
+            lines.append(f"{months} мес. - {amount} руб.")
+        await message.answer("\n".join(lines))
+
+    @router.message(Command("admin_set_price"))
+    async def admin_set_price(message: Message, vpn_service: VPNService) -> None:
+        parts = (message.text or "").split()
+        if len(parts) != 3:
+            await message.answer("Использование: /admin_set_price <months> <amount>")
+            return
+        try:
+            months = int(parts[1])
+            amount = int(parts[2])
+        except ValueError:
+            await message.answer("Months и amount должны быть числами.")
+            return
+        if months <= 0 or amount <= 0:
+            await message.answer("Months и amount должны быть больше нуля.")
+            return
+        plan_prices = await vpn_service.update_plan_price(months=months, amount=amount)
+        lines = ["Тариф обновлён:"]
+        for item_months, item_amount in sorted(plan_prices.items()):
+            lines.append(f"{item_months} мес. - {item_amount} руб.")
+        await message.answer("\n".join(lines))
+
+    @router.message(Command("admin_set_requisites"))
+    async def admin_set_requisites(message: Message, vpn_service: VPNService) -> None:
+        raw_text = (message.text or "").removeprefix("/admin_set_requisites").strip()
+        if not raw_text:
+            await message.answer("Использование: /admin_set_requisites <text>")
+            return
+        details = await vpn_service.update_payment_details(raw_text)
+        await message.answer(f"Реквизиты обновлены:\n{details}")
+
+    @router.message(Command("admin_set_price_text"))
+    async def admin_set_price_text(message: Message, vpn_service: VPNService) -> None:
+        raw_text = (message.text or "").removeprefix("/admin_set_price_text").strip()
+        if not raw_text:
+            await message.answer("Использование: /admin_set_price_text <text>")
+            return
+        text_value = await vpn_service.update_price_text(raw_text)
+        await message.answer(f"Текст оплаты обновлён:\n{text_value}")
 
     return router
