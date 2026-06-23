@@ -31,6 +31,8 @@ def _normalized_menu_text(text: str) -> str:
 @router.message(F.text)
 async def menu_buttons_handler(message: Message, vpn_service: VPNService) -> None:
     text = _normalized_menu_text(message.text or "")
+    if text.startswith("/"):
+        return
     if "моя подписка" in text:
         if not message.from_user:
             return
