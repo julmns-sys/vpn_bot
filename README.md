@@ -161,6 +161,8 @@ python -m app.main --check-xui
 - `/admin_set_price <months> <amount>`
 - `/admin_set_requisites <text>`
 - `/admin_set_price_text <text>`
+- `/admin_list`
+- `/admin_add`
 
 ## Импорт существующих пользователей
 

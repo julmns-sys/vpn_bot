@@ -6,7 +6,6 @@ from app.bot.keyboards.user import (
     payment_confirmation_keyboard,
     payment_plans_reply_keyboard,
 )
-from app.core.config import get_settings
 from app.services.vpn_service import VPNService
 
 router = Router(name="billing")
@@ -47,10 +46,9 @@ async def payment_submitted_callback(
         return
 
     months = max(subscription.period_days // 30, 1)
-    settings = get_settings()
     await notify_admins_about_payment(
         bot=bot,
-        admin_ids=set(settings.admin_ids),
+        admin_ids=await vpn_service.get_admin_ids(),
         subscription_id=subscription.id,
         user_telegram_id=callback.from_user.id,
         username=callback.from_user.username,

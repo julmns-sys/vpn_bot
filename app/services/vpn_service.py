@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 BOT_SETTING_PLAN_PRICES = "plan_prices"
 BOT_SETTING_PRICE_TEXT = "price_text"
 BOT_SETTING_PAYMENT_DETAILS = "payment_details"
+BOT_SETTING_ADMIN_IDS = "admin_ids"
 
 
 class VPNService:
@@ -283,6 +284,27 @@ class VPNService:
             self._deserialize_plan_prices(raw_settings.get(BOT_SETTING_PLAN_PRICES)),
         )
 
+    async def get_admin_ids(self) -> set[int]:
+        async with self._session_factory() as session:
+            repo = BotSettingRepository(session)
+            raw_settings = await repo.get_many([BOT_SETTING_ADMIN_IDS])
+        return set(self._settings.admin_ids) | self._deserialize_admin_ids(
+            raw_settings.get(BOT_SETTING_ADMIN_IDS)
+        )
+
+    async def add_admin_id(self, telegram_id: int) -> set[int]:
+        async with self._session_factory() as session:
+            repo = BotSettingRepository(session)
+            raw_settings = await repo.get_many([BOT_SETTING_ADMIN_IDS])
+            admin_ids = self._deserialize_admin_ids(raw_settings.get(BOT_SETTING_ADMIN_IDS))
+            admin_ids.add(telegram_id)
+            await repo.set(
+                BOT_SETTING_ADMIN_IDS,
+                json.dumps(sorted(admin_ids), ensure_ascii=True),
+            )
+            await session.commit()
+        return await self.get_admin_ids()
+
     async def update_plan_price(self, *, months: int, amount: int) -> dict[int, int]:
         async with self._session_factory() as session:
             repo = BotSettingRepository(session)
@@ -432,6 +454,25 @@ class VPNService:
         except (TypeError, ValueError):
             logger.warning("Invalid plan_prices values in bot settings, using defaults")
             return dict(self._settings.plan_prices)
+
+    def _deserialize_admin_ids(self, raw_value: str | None) -> set[int]:
+        if not raw_value:
+            return set()
+        try:
+            parsed = json.loads(raw_value)
+        except json.JSONDecodeError:
+            logger.warning("Invalid admin_ids in bot settings, using defaults only")
+            return set()
+        if not isinstance(parsed, list):
+            logger.warning("Invalid admin_ids shape in bot settings, using defaults only")
+            return set()
+        result: set[int] = set()
+        for value in parsed:
+            try:
+                result.add(int(value))
+            except (TypeError, ValueError):
+                logger.warning("Skipping invalid admin id in bot settings: %s", value)
+        return result
 
     async def _import_existing_xui_account(
         self,
