@@ -4,7 +4,8 @@ from aiogram.utils.keyboard import ReplyKeyboardBuilder
 
 MENU_PROFILE_TEXT = "⭐ Моя подписка"
 MENU_RENEW_TEXT = "🐝 Оплатить подписку"
-MENU_HELP_TEXT = "🆘 Нужна помощь?"
+MENU_HELP_TEXT = "📲 Инструкция по подключению"
+MENU_SUPPORT_TEXT = "🆘 Нужна помощь?"
 MENU_RULES_TEXT = "📜 Правила использования"
 PLAN_1_TEXT = "1 месяц - 100 руб"
 PLAN_2_TEXT = "2 месяца - 190 руб"
@@ -28,6 +29,7 @@ def main_menu_reply_keyboard() -> ReplyKeyboardMarkup:
     builder.button(text=MENU_PROFILE_TEXT)
     builder.button(text=MENU_RENEW_TEXT)
     builder.button(text=MENU_HELP_TEXT)
+    builder.button(text=MENU_SUPPORT_TEXT)
     builder.button(text=MENU_RULES_TEXT)
     builder.adjust(1)
     return builder.as_markup(

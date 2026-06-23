@@ -6,7 +6,7 @@ from aiogram import F, Router
 from aiogram.types import Message
 
 from app.bot.handlers.billing import send_payment_info
-from app.bot.handlers.help import HELP_TEXT, RULES_TEXT
+from app.bot.handlers.help import HELP_TEXT, INSTRUCTION_TEXT, RULES_TEXT
 from app.bot.handlers.profile import _format_profile
 from app.bot.keyboards.user import (
     BACK_TO_MENU_TEXT,
@@ -87,8 +87,12 @@ async def menu_buttons_handler(message: Message, vpn_service: VPNService) -> Non
         await message.answer("Главное меню:", reply_markup=main_menu_reply_keyboard())
         return
 
+    if "инструкция по подключению" in text:
+        await message.answer(INSTRUCTION_TEXT, reply_markup=main_menu_reply_keyboard())
+        return
+
     if "нужна помощь" in text or text == "помощь":
-        await message.answer(HELP_TEXT, reply_markup=main_menu_reply_keyboard())
+        await message.answer(HELP_TEXT, reply_markup=main_menu_reply_keyboard(), parse_mode="HTML")
         return
 
     if "правила использования" in text:
