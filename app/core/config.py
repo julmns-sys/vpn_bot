@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     xui_inbound_id: int = Field(alias="XUI_INBOUND_ID")
     xui_request_timeout: float = Field(default=15.0, alias="XUI_REQUEST_TIMEOUT")
     xui_verify_ssl: bool = Field(default=False, alias="XUI_VERIFY_SSL")
+    xui_auth_ttl_seconds: int = Field(default=300, alias="XUI_AUTH_TTL_SECONDS")
 
     vpn_host: str = Field(alias="VPN_HOST")
     vpn_port: int = Field(alias="VPN_PORT")

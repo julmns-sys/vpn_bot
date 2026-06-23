@@ -5,7 +5,7 @@ import logging
 import ssl
 import uuid as uuid_lib
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -50,13 +50,24 @@ class XUIClient:
             verify=settings.xui_verify_ssl,
         )
         self._is_authenticated = False
+        self._authenticated_at: datetime | None = None
 
     async def close(self) -> None:
         await self._client.aclose()
 
     async def ensure_authenticated(self) -> None:
-        if self._is_authenticated:
+        if not self._needs_authentication():
             return
+
+        if self._authenticated_at and self._is_authenticated and self._has_cookies():
+            logger.info(
+                "3x-ui session considered expired by TTL, performing re-login: ttl_seconds=%s",
+                self._settings.xui_auth_ttl_seconds,
+            )
+        elif self._is_authenticated and not self._has_cookies():
+            logger.info("3x-ui session cookies are missing, performing re-login")
+
+        self._clear_session()
 
         login_path = self._path("login")
         try:
@@ -133,6 +144,7 @@ class XUIClient:
             raise XUIAuthError("3x-ui login did not establish a session")
 
         self._is_authenticated = True
+        self._authenticated_at = datetime.now(timezone.utc)
         logger.info(
             "Authenticated against 3x-ui: url=%s verify_ssl=%s",
             self._full_url(login_path),
@@ -248,8 +260,61 @@ class XUIClient:
     async def _request(self, method: str, path: str, **kwargs) -> dict | list | None:
         await self.ensure_authenticated()
         normalized_path = self._path(path)
+        response = await self._send_request(method, normalized_path, **kwargs)
+
+        if response.status_code in {401, 403, 404}:
+            self._log_error_response("3x-ui returned auth-sensitive status", response)
+            logger.info(
+                "3x-ui session expired or invalid, re-authenticating: method=%s url=%s status_code=%s",
+                method,
+                self._full_url(normalized_path),
+                response.status_code,
+            )
+            self._clear_session()
+            await self.ensure_authenticated()
+            response = await self._send_request(method, normalized_path, **kwargs)
+
+        logger.debug(
+            "3x-ui response received: method=%s url=%s status_code=%s",
+            method,
+            self._full_url(normalized_path),
+            response.status_code,
+        )
+
+        if response.status_code == 401:
+            self._log_error_response("3x-ui returned 401 Unauthorized after retry", response)
+            raise XUIAuthError("3x-ui session expired or is invalid")
+        if response.status_code == 403:
+            self._log_error_response("3x-ui returned 403 Forbidden after retry", response)
+            raise XUIAuthError("3x-ui rejected the authenticated session")
+        if response.status_code == 404:
+            self._log_error_response("3x-ui returned 404 Not Found after retry", response)
+            raise XUIUnavailableError(f"3x-ui endpoint not found or session is invalid: {path}")
+        if response.status_code >= 400:
+            self._log_error_response("3x-ui request failed", response)
+            raise XUIUnavailableError(
+                f"3x-ui request failed for {path} with status {response.status_code}"
+            )
+        if not response.text.strip():
+            return None
         try:
-            response = await self._client.request(method, normalized_path, **kwargs)
+            payload = response.json()
+        except ValueError as exc:
+            raise XUIUnavailableError(f"3x-ui returned invalid JSON for {path}") from exc
+
+        if isinstance(payload, dict) and payload.get("success") is False:
+            self._log_error_response("3x-ui API returned success=false", response)
+            raise XUIError(payload.get("msg") or f"3x-ui request failed for {path}")
+        return payload
+
+    async def _send_request(self, method: str, normalized_path: str, **kwargs) -> httpx.Response:
+        logger.debug(
+            "Calling 3x-ui endpoint: method=%s url=%s",
+            method,
+            self._full_url(normalized_path),
+        )
+        try:
+            return await self._client.request(method, normalized_path, **kwargs)
         except httpx.ConnectTimeout as exc:
             logger.exception(
                 "3x-ui request timeout: method=%s url=%s timeout=%s",
@@ -292,31 +357,7 @@ class XUIClient:
                 self._settings.xui_verify_ssl,
                 str(exc),
             )
-            raise XUIUnavailableError(f"3x-ui request failed for {path}") from exc
-
-        if response.status_code == 401:
-            self._is_authenticated = False
-            self._log_error_response("3x-ui returned 401 Unauthorized", response)
-            raise XUIAuthError("3x-ui session expired or is invalid")
-        if response.status_code == 404:
-            self._log_error_response("3x-ui returned 404 Not Found", response)
-            raise XUIUnavailableError(f"3x-ui endpoint not found: {path}")
-        if response.status_code >= 400:
-            self._log_error_response("3x-ui request failed", response)
-            raise XUIUnavailableError(
-                f"3x-ui request failed for {path} with status {response.status_code}"
-            )
-        if not response.text.strip():
-            return None
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise XUIUnavailableError(f"3x-ui returned invalid JSON for {path}") from exc
-
-        if isinstance(payload, dict) and payload.get("success") is False:
-            self._log_error_response("3x-ui API returned success=false", response)
-            raise XUIError(payload.get("msg") or f"3x-ui request failed for {path}")
-        return payload
+            raise XUIUnavailableError(f"3x-ui request failed for {normalized_path}") from exc
 
     @staticmethod
     def _path(path: str) -> str:
@@ -345,6 +386,23 @@ class XUIClient:
 
     def _full_url(self, path: str) -> str:
         return str(self._client.base_url.join(path))
+
+    def _needs_authentication(self) -> bool:
+        if not self._is_authenticated or self._authenticated_at is None:
+            return True
+        if not self._has_cookies():
+            return True
+        return datetime.now(timezone.utc) >= (
+            self._authenticated_at + timedelta(seconds=self._settings.xui_auth_ttl_seconds)
+        )
+
+    def _has_cookies(self) -> bool:
+        return bool(self._client.cookies)
+
+    def _clear_session(self) -> None:
+        self._client.cookies.clear()
+        self._is_authenticated = False
+        self._authenticated_at = None
 
     @staticmethod
     def _trim_response_text(text: str) -> str:
